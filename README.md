@@ -42,11 +42,11 @@ Usage: CouchDBAssembler [source-dir] [database-url]
   -h, --help        Display this help screen.
 ```
 
-Command line arguments take priority over `App.config`. If unspecified, source-dir is the current directory.
+Command line arguments take priority over `App.config`. If unspecified, `source-dir` is the current directory.
 
 
 ### Notes
 
 Take care with spurious newlines at the end of files. This is particularly important for [builtin reduce functions](http://docs.couchdb.org/en/latest/couchapp/ddocs.html#reducefun-builtin), and `_id` files.
 
-If any parse errors are found (JavaScript/JSON errors, binary files) no documents are uploaded.
+If any parse errors are found (JavaScript/JSON errors, binary files) errors are reported and no documents are uploaded.
