@@ -1,0 +1,10 @@
+﻿[
+    {
+        "from": "/with-events",
+        "to": "/_list/get-user/user-data",
+        "query": {
+            "include_docs": "true",
+            "startkey": [ ":id" ]
+        }
+    }
+]
