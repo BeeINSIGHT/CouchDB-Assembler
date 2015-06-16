@@ -50,3 +50,10 @@ Command line arguments take priority over `App.config`. If unspecified, `source-
 Take care with spurious newlines at the end of files. This is particularly important for [builtin reduce functions](http://docs.couchdb.org/en/latest/couchapp/ddocs.html#reducefun-builtin), and `_id` files.
 
 If any parse errors are found (JavaScript/JSON errors, binary files) errors are reported and no documents are uploaded.
+
+#### Dependencies
+
+* [Command Line Parser Library](https://www.nuget.org/packages/CommandLineParser)
+* [Microsoft Ajax Minifier](https://www.nuget.org/packages/AjaxMin/)
+* [Json.NET](https://www.nuget.org/packages/Newtonsoft.Json)
+* [MyCouch](https://www.nuget.org/packages/MyCouch/)
