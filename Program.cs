@@ -22,7 +22,7 @@ namespace CouchDBAssembler
         static readonly string[] knowGlobals = new[]
         {
             // CommonJS
-            "require", "exports", 
+            "require", "module", "exports",
             // All functions
             "log", "sum", "isArray", "toJSON", "JSON",
             // Map functions
