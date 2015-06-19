@@ -8,6 +8,7 @@ mapping](https://github.com/couchapp/couchapp/wiki/Complete-Filesystem-to-Design
 
 * Windows / Visual Studio friendly.
 * Validates JavaScript and JSON before upload.
+* Support for TypeScript (with Visual Studio).
 
 
 ### How to use
