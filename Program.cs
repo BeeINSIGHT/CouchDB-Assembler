@@ -68,7 +68,7 @@ namespace CouchDBAssembler
             try
             {
                 // Get existing design document revisions
-                var rows = await store.QueryAsync(new Query("_all_docs") { StartKey = "_desgin", EndKey = "_design0", InclusiveEnd = false });
+                var rows = await store.QueryAsync(new Query("_all_docs") { StartKey = "_desgin/", EndKey = "_design0", InclusiveEnd = false });
                 var revs = rows.ToDictionary(r => r.Id, r => JsonConvert.DeserializeAnonymousType(r.Value, new { rev = "" }).rev);
 
                 // Create update bulk request
@@ -129,6 +129,11 @@ namespace CouchDBAssembler
                 if (id == null)
                 {
                     id = "_design/" + dir.Name;
+                    doc["_id"] = id;
+                }
+                else if (!id.StartsWith("_design/", StringComparison.Ordinal))
+                {
+                    id = "_design/" + id;
                     doc["_id"] = id;
                 }
 
