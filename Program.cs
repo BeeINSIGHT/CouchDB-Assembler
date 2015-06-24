@@ -53,7 +53,7 @@ namespace CouchDBAssembler
                     cts.Cancel();
                 };
 
-                DoWorkAsync(cts.Token).Wait();
+                RunAsync(cts.Token).Wait();
                 if (Debugger.IsAttached && HasError) Console.ReadKey();
             }
             else
@@ -62,14 +62,14 @@ namespace CouchDBAssembler
             }
         }
 
-        static async Task DoWorkAsync(CancellationToken token)
+        static async Task RunAsync(CancellationToken token)
         {
             var store = new MyCouchStore(uri);
             try
             {
                 // Get existing design document revisions
                 var rows = await store.QueryAsync(new Query("_all_docs") { StartKey = "_desgin/", EndKey = "_design0", InclusiveEnd = false });
-                var revs = rows.ToDictionary(r => r.Id, r => JsonConvert.DeserializeAnonymousType(r.Value, new { rev = "" }).rev);
+                var revs = rows.ToDictionary(r => r.Id, r => JsonConvert.DeserializeAnonymousType(r.Value, new { rev = string.Empty }).rev);
 
                 // Create update bulk request
                 var bulk = CreateBulkRequest(revs);
