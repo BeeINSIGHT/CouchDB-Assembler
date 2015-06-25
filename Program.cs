@@ -209,19 +209,17 @@ namespace CouchDBAssembler
             try
             {
                 var doc = ParseJson(file) as JObject;
-                if (doc == null)
+                if (doc != null)
                 {
-                    Error("{0}: Document must be an object.", GetRelativePath(file));
-                    return new JObject();
-                }
+                    var attach = new DirectoryInfo(Path.ChangeExtension(file.FullName, "_attachments"));
+                    if (attach.Exists)
+                    {
+                        doc["_attachments"] = BuildAttachments(attach);
+                    }
 
-                var attach = new DirectoryInfo(Path.ChangeExtension(file.FullName, "_attachments"));
-                if (attach.Exists)
-                {
-                    doc["_attachments"] = BuildAttachments(attach);
+                    return doc;
                 }
-
-                return doc;
+                Error("{0}: Document must be an object.", GetRelativePath(file));
             }
             catch (Exception e)
             {
@@ -288,14 +286,14 @@ namespace CouchDBAssembler
         /// <summary>
         /// Build attachments structure from a given directory.
         /// </summary>
-        static JObject BuildAttachments(DirectoryInfo dir)
+        static JObject BuildAttachments(DirectoryInfo directory)
         {
             var result = new JObject();
             try
             {
-                var baseUri = new Uri(dir.FullName.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar);
+                var baseUri = new Uri(directory.FullName.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar);
 
-                foreach (var file in dir.EnumerateFiles("*.*", SearchOption.AllDirectories))
+                foreach (var file in directory.EnumerateFiles("*.*", SearchOption.AllDirectories))
                 {
                     var attachment = new JObject();
                     attachment["data"] = File.ReadAllBytes(file.FullName);
@@ -307,7 +305,7 @@ namespace CouchDBAssembler
             }
             catch (Exception e)
             {
-                Error("{0}: {1}", GetRelativePath(dir), e.Message);
+                Error("{0}: {1}", GetRelativePath(directory), e.Message);
             }
             return result;
         }
@@ -370,7 +368,7 @@ namespace CouchDBAssembler
                 
                 var minifier = new Minifier { FileName = path };
                 json = minifier.MinifyJavaScript(json, settings);
-                minifier.ErrorList.ForEach(e => CompilerError(minifier, new ContextErrorEventArgs { Error = e }));
+                minifier.ErrorList.ForEach(CompilerError);
 
                 if (!HasError) return JToken.Parse(json);
             }
@@ -405,18 +403,6 @@ namespace CouchDBAssembler
             return string.Empty;
         }
 
-        static void CompilerError(object sender, ContextErrorEventArgs e)
-        {
-            if (e.Error.IsError)
-            {
-                Error("{0}", e.Error);
-            }
-            else
-            {
-                Warning("{0}", e.Error);
-            }
-        }
-
         static string GetRelativePath(FileSystemInfo info)
         {
             var baseUri = new Uri(directory.FullName.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar);
@@ -445,6 +431,23 @@ namespace CouchDBAssembler
         static void Warning(string format, params object[] args)
         {
             Console.WriteLine(format, args);
+        }
+
+        static void CompilerError(object sender, ContextErrorEventArgs e)
+        {
+            CompilerError(e.Error);
+        }
+
+        static void CompilerError(ContextError error)
+        {
+            if (error.IsError)
+            {
+                Error("{0}", error);
+            }
+            else
+            {
+                Warning("{0}", error);
+            }
         }
 
         class AllDocsValue
