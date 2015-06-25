@@ -22,7 +22,7 @@ The simplest way is forking this repository and using the Visual Studio project 
 
 Use this Visual Studio project for development. Configure database URL, username and password in `App.config` (make sure you're not commiting passwords to public repos).
 
-Design documents are read from the `_design` folder (configured as the working directory in the project file).
+Design documents are built from the `_design` folder. Other JSON documents can be placed besides the `_design` directory.
 Only files copied to output are compiled (don't forget to set "Copy if newer").
 
 Running the project assembles the design documents and uploads them to the database.
@@ -44,6 +44,7 @@ Usage: CouchDBAssembler [source-dir] [database-url]
 ```
 
 Command line arguments take priority over `App.config`. If unspecified, `source-dir` is the current directory.
+Either `source-dir` is named `_design`, or it should contain a `_design` directory and other JSON documens besides it.
 
 
 ### Notes

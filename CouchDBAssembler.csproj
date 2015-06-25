@@ -81,6 +81,9 @@
     <None Include="App.config">
       <SubType>Designer</SubType>
     </None>
+    <None Include="album.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Include="packages.config" />
     <None Include="_design\users\rewrites.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
