@@ -103,6 +103,10 @@ namespace CouchDBAssembler
                     Warning("Done!");
                 }
             }
+            catch (AggregateException e)
+            {
+                foreach (var ie in e.InnerExceptions) Error(ie.Message);
+            }
             catch (Exception e)
             {
                 Error(e.Message);
@@ -168,47 +172,52 @@ namespace CouchDBAssembler
         static JObject BuildDocument(DirectoryInfo directory, bool attachments = true)
         {
             var result = new JObject();
-
-            // Go through subdirectories
-            foreach (var dir in directory.EnumerateDirectories())
+            try
             {
-                // Attachments subdirectory found
-                if (attachments && dir.Name == "_attachments")
+                // Go through subdirectories
+                foreach (var dir in directory.EnumerateDirectories())
                 {
-                    result[dir.Name] = BuildAttachments(dir);
+                    // Attachments subdirectory found
+                    if (attachments && dir.Name == "_attachments")
+                    {
+                        result[dir.Name] = BuildAttachments(dir);
+                    }
+                    // Otherwise, recurse into subdirectory
+                    else
+                    {
+                        result[dir.Name] = BuildDocument(dir, false);
+                    }
                 }
-                // Otherwise, recurse into subdirectory
-                else
+
+                // Go through files
+                foreach (var file in directory.EnumerateFiles("*.*"))
                 {
-                    result[dir.Name] = BuildDocument(dir, false);
+                    var name = Path.GetFileNameWithoutExtension(file.Name);
+                    var ext = Path.GetExtension(file.Name);
+
+                    switch (ext)
+                    {
+                        // JavaScript files: syntax checked and loaded as string
+                        case ".js":
+                            result[name] = ParseJavaScript(file);
+                            break;
+
+                        // JSON files: syntax checked and loaded as JSON
+                        case ".json":
+                            result[name] = ParseJson(file);
+                            break;
+
+                        // Text files: load as string for templating
+                        default:
+                            result[name] = ParseText(file);
+                            break;
+                    }
                 }
             }
-
-            // Go through files
-            foreach (var file in directory.EnumerateFiles("*.*"))
+            catch (Exception e)
             {
-                var name = Path.GetFileNameWithoutExtension(file.Name);
-                var ext = Path.GetExtension(file.Name);
-
-                switch (ext)
-                {
-                    // JavaScript files: syntax checked and loaded as string
-                    case ".js":
-                        result[name] = ParseJavaScript(file);
-                        break;
-
-                    // JSON files: syntax checked and loaded as JSON
-                    case ".json":
-                        result[name] = ParseJson(file);
-                        break;
-
-                    // Text files: load as string for templating
-                    default:
-                        result[name] = ParseText(file);
-                        break;
-                }
+                Error("{0}: {1}", GetRelativePath(directory), e.Message);
             }
-
             return result;
         }
 
@@ -217,19 +226,25 @@ namespace CouchDBAssembler
         /// </summary>
         static JObject BuildAttachments(DirectoryInfo dir)
         {
-            var baseUri = new Uri(dir.FullName.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar);
             var result = new JObject();
-
-            foreach (var file in dir.EnumerateFiles("*.*", SearchOption.AllDirectories))
+            try
             {
-                var attachment = new JObject();
-                attachment["data"] = File.ReadAllBytes(file.FullName);
-                attachment["content_type"] = MimeMapping.GetMimeMapping(file.Name);
+                var baseUri = new Uri(dir.FullName.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar);
 
-                var name = Uri.UnescapeDataString(baseUri.MakeRelativeUri(new Uri(file.FullName)).ToString());
-                result[name] = attachment;
+                foreach (var file in dir.EnumerateFiles("*.*", SearchOption.AllDirectories))
+                {
+                    var attachment = new JObject();
+                    attachment["data"] = File.ReadAllBytes(file.FullName);
+                    attachment["content_type"] = MimeMapping.GetMimeMapping(file.Name);
+
+                    var name = Uri.UnescapeDataString(baseUri.MakeRelativeUri(new Uri(file.FullName)).ToString());
+                    result[name] = attachment;
+                }
             }
-
+            catch (Exception e)
+            {
+                Error("{0}: {1}", GetRelativePath(dir), e.Message);
+            }
             return result;
         }
 
@@ -288,7 +303,7 @@ namespace CouchDBAssembler
                 settings.MinifyCode = false;
                 settings.Format = JavaScriptFormat.JSON;
                 settings.SourceMode = JavaScriptSourceMode.Expression;
-                
+
                 var minifier = new Minifier { FileName = path };
                 json = minifier.MinifyJavaScript(json, settings);
                 minifier.ErrorList.ForEach(e => CompilerError(minifier, new ContextErrorEventArgs { Error = e }));
@@ -311,7 +326,7 @@ namespace CouchDBAssembler
             try
             {
                 var text = File.ReadAllText(file.FullName);
-                
+
                 if (validText.IsMatch(text))
                 {
                     return text.Replace(Environment.NewLine, "\n");
