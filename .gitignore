@@ -5,4 +5,4 @@ packages
 *.user
 *.vshost.*
 
-App.config
+app.config
