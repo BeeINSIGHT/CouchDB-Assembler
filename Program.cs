@@ -73,12 +73,11 @@ namespace CouchDBAssembler
             var store = new MyCouchStore(uri);
             try
             {
-                // Get existing design document revisions
-                var rows = await store.QueryAsync<AllDocsValue>(new Query("_all_docs") { StartKey = "_desgin/", EndKey = "_design0", InclusiveEnd = false });
-                var revs = rows.ToDictionary(r => r.Id, r => r.Value.Rev);
+                var bulk = new BulkRequest();
 
-                // Create update bulk request
-                var bulk = CreateBulkRequest(revs);
+                Task.WaitAll(
+                    UpdateDesignDocuments(store, bulk),
+                    UpdateOtherDocuments(store, bulk));
 
                 if (HasError)
                 {
@@ -118,58 +117,123 @@ namespace CouchDBAssembler
         }
 
         /// <summary>
-        /// Creates a bulk request that updates the design documents.
+        /// Find and update design documents.
         /// </summary>
-        /// <param name="revs">A dictionary mapping design document ids to revisions.</param>
-        /// <returns>The bulk request.</returns>
-        /// <remarks>
-        /// Create a design document from each subdirectory.
-        /// Missing design documents are removed.
-        /// </remarks>
-        static BulkRequest CreateBulkRequest(Dictionary<string, string> revs)
+        static async Task UpdateDesignDocuments(IMyCouchStore store, BulkRequest bulk)
         {
-            var bulk = new BulkRequest();
+            // Get the design document root
+            var root = directory;
+            if (root.Name != "_design") root = root.CreateSubdirectory("_design");
 
-            // Create a design document from each subdirectory
-            foreach (var dir in directory.EnumerateDirectories())
+            // Get existing design document revisions
+            var rows = await store.QueryAsync<AllDocsValue>(new Query("_all_docs") { StartKey = "_desgin/", EndKey = "_design0", InclusiveEnd = false });
+            var revs = rows.ToDictionary(r => r.Id, r => r.Value.Rev);
+
+            lock (bulk)
             {
-                var doc = BuildDocument(dir);
+                // Create a design document from each subdirectory
+                foreach (var dir in root.EnumerateDirectories())
+                {
+                    var doc = BuildDesignDocument(dir);
+
+                    var id = (string)doc["_id"];
+                    if (id == null)
+                    {
+                        id = "_design/" + dir.Name;
+                        doc["_id"] = id;
+                    }
+                    else if (!id.StartsWith("_design/", StringComparison.Ordinal))
+                    {
+                        id = "_design/" + id;
+                        doc["_id"] = id;
+                    }
+
+                    var rev = string.Empty;
+                    if (revs.TryGetValue(id, out rev))
+                    {
+                        doc["_rev"] = rev;
+                        revs.Remove(id);
+                    }
+
+                    bulk.Include(doc.ToString(Formatting.None));
+                }
+
+                // Missing design documents are removed
+                foreach (var kvp in revs)
+                {
+                    bulk.Delete(kvp.Key, kvp.Value);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Find and update other documents.
+        /// </summary>
+        static async Task UpdateOtherDocuments(IMyCouchStore store, BulkRequest bulk)
+        {
+            var root = directory;
+            if (root.Name == "_design") return;
+            
+            var docs = new Dictionary<string, JObject>();
+
+            foreach (var file in root.EnumerateFiles("*.json"))
+            {
+                var doc = BuildDocument(file);
 
                 var id = (string)doc["_id"];
                 if (id == null)
                 {
-                    id = "_design/" + dir.Name;
-                    doc["_id"] = id;
-                }
-                else if (!id.StartsWith("_design/", StringComparison.Ordinal))
-                {
-                    id = "_design/" + id;
+                    id = Path.GetFileNameWithoutExtension(file.Name);
                     doc["_id"] = id;
                 }
 
-                var rev = string.Empty;
-                if (revs.TryGetValue(id, out rev))
-                {
-                    doc["_rev"] = rev;
-                    revs.Remove(id);
-                }
-
-                bulk.Include(doc.ToString(Formatting.None));
+                docs.Add(id, doc);
             }
 
-            // Missing design documents are removed
-            foreach (var kvp in revs)
+            await store.QueryAsync<AllDocsValue>(new Query("_all_docs").Configure(c => c.Keys(docs.Keys.ToArray())), r =>
             {
-                bulk.Delete(kvp.Key, kvp.Value);
-            }
+                if (r.Id != null) docs[r.Id]["_rev"] = r.Value.Rev;
+            });
 
-            return bulk;
+            lock (bulk)
+            {
+                bulk.Include(docs.Values.Select(d => d.ToString(Formatting.None)).ToArray());
+            }
+        }
+
+        /// <summary>
+        /// Build a document from a given file and attachments.
+        /// </summary>
+        static JObject BuildDocument(FileInfo file)
+        {
+            try
+            {
+                var doc = ParseJson(file) as JObject;
+                if (doc == null)
+                {
+                    Error("{0}: Document must be an object.", GetRelativePath(file));
+                    return new JObject();
+                }
+
+                var attach = new DirectoryInfo(Path.ChangeExtension(file.FullName, "_attachments"));
+                if (attach.Exists)
+                {
+                    doc["_attachments"] = BuildAttachments(attach);
+                }
+
+                return doc;
+            }
+            catch (Exception e)
+            {
+                Error("{0}: {1}", GetRelativePath(file), e.Message);
+            }
+            return new JObject();
         }
 
         /// <summary>
         /// Build a design document from a given directory.
         /// </summary>
-        static JObject BuildDocument(DirectoryInfo directory, bool attachments = true)
+        static JObject BuildDesignDocument(DirectoryInfo directory, bool attachments = true)
         {
             var result = new JObject();
             try
@@ -185,7 +249,7 @@ namespace CouchDBAssembler
                     // Otherwise, recurse into subdirectory
                     else
                     {
-                        result[dir.Name] = BuildDocument(dir, false);
+                        result[dir.Name] = BuildDesignDocument(dir, false);
                     }
                 }
 
@@ -303,7 +367,7 @@ namespace CouchDBAssembler
                 settings.MinifyCode = false;
                 settings.Format = JavaScriptFormat.JSON;
                 settings.SourceMode = JavaScriptSourceMode.Expression;
-
+                
                 var minifier = new Minifier { FileName = path };
                 json = minifier.MinifyJavaScript(json, settings);
                 minifier.ErrorList.ForEach(e => CompilerError(minifier, new ContextErrorEventArgs { Error = e }));
