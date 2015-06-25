@@ -183,7 +183,7 @@ namespace CouchDBAssembler
                 var id = (string)doc["_id"];
                 if (id == null)
                 {
-                    id = Path.GetFileNameWithoutExtension(file.Name);
+                    id = Guid.NewGuid().ToString("N");
                     doc["_id"] = id;
                 }
 
