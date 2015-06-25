@@ -78,8 +78,8 @@
     <Compile Include="Properties\Settings.cs" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="Properties\app.config" />
-    <None Include="Properties\packages.config" />
+    <None Include="app.config" />
+    <None Include="packages.config" />
     <None Include="album.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
