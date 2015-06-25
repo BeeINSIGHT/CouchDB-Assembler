@@ -42,8 +42,14 @@ namespace CouchDBAssembler
         {
             if (CommandLine.Parser.Default.ParseArguments(args, Settings.Default))
             {
-                GetDirectory();
-                GetDatabaseUri();
+                directory = Settings.Default.GetSourceDirectory();
+                uri = Settings.Default.GetDatabaseUri();
+
+                if (!directory.Exists)
+                {
+                    Error("The directory name is invalid.");
+                    Environment.Exit(1);
+                }
 
                 var cts = new CancellationTokenSource();
 
@@ -332,35 +338,10 @@ namespace CouchDBAssembler
             }
         }
 
-        static void GetDirectory()
-        {
-            directory = new DirectoryInfo(Settings.Default.SourceDir);
-            if (directory.Exists) return;
-
-            Error("The directory name is invalid.");
-            Environment.Exit(1);
-        }
-
-        static void GetDatabaseUri()
-        {
-            var database = Settings.Default.DatabaseUrl;
-            var username = Settings.Default.Username;
-            var password = Settings.Default.Password;
-
-            var builder = new MyCouchUriBuilder(database);
-
-            if (username != "" || password != "")
-            {
-                builder.SetBasicCredentials(username, password);
-            }
-
-            uri = builder.Build();
-        }
-
-        static string GetRelativePath(FileInfo file)
+        static string GetRelativePath(FileSystemInfo info)
         {
             var baseUri = new Uri(directory.FullName.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar);
-            return Uri.UnescapeDataString(baseUri.MakeRelativeUri(new Uri(file.FullName)).ToString());
+            return Uri.UnescapeDataString(baseUri.MakeRelativeUri(new Uri(info.FullName)).ToString());
         }
 
         static bool HasError { get { return Environment.ExitCode != 0; } }

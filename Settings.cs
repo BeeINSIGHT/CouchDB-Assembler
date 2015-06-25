@@ -1,6 +1,9 @@
 ﻿using CommandLine;
 using CommandLine.Text;
+using MyCouch;
+using System;
 using System.Configuration;
+using System.IO;
 
 namespace CouchDBAssembler
 {
@@ -61,6 +64,27 @@ namespace CouchDBAssembler
             help.AddPreOptionsLine("  [database-url]    The url of the CouchDB database to update.");
             help.AddOptions(this);
             return help;
+        }
+
+        public DirectoryInfo GetSourceDirectory()
+        {
+            return new DirectoryInfo(SourceDir);
+        }
+
+        public Uri GetDatabaseUri()
+        {
+            var database = Settings.Default.DatabaseUrl;
+            var username = Settings.Default.Username;
+            var password = Settings.Default.Password;
+
+            var builder = new MyCouchUriBuilder(database);
+
+            if (username != "" || password != "")
+            {
+                builder.SetBasicCredentials(username, password);
+            }
+
+            return builder.Build();
         }
     }
 }
