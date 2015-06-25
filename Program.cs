@@ -246,7 +246,6 @@ namespace CouchDBAssembler
                 }
 
                 var parser = new JSParser();
-                parser.Settings = new CodeSettings();
                 parser.Settings.MinifyCode = false;
                 parser.Settings.PreprocessOnly = true;
                 parser.Settings.SetKnownGlobalIdentifiers(knowGlobals);
@@ -279,10 +278,14 @@ namespace CouchDBAssembler
             {
                 var json = File.ReadAllText(file.FullName);
 
-                var parser = new JSParser();
-                parser.Settings.Format = JavaScriptFormat.JSON;
-                parser.CompilerError += CompilerError;
-                parser.Parse(new DocumentContext(json) { FileContext = path });
+                var settings = new CodeSettings();
+                settings.MinifyCode = false;
+                settings.Format = JavaScriptFormat.JSON;
+                settings.SourceMode = JavaScriptSourceMode.Expression;
+                
+                var minifier = new Minifier { FileName = path };
+                json = minifier.MinifyJavaScript(json, settings);
+                minifier.ErrorList.ForEach(e => CompilerError(minifier, new ContextErrorEventArgs { Error = e }));
 
                 if (!HasError) return JToken.Parse(json);
             }
@@ -319,7 +322,7 @@ namespace CouchDBAssembler
 
         static void CompilerError(object sender, ContextErrorEventArgs e)
         {
-            if (e.Error.Severity == 0)
+            if (e.Error.IsError)
             {
                 Error("{0}", e.Error);
             }
