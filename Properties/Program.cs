@@ -47,7 +47,7 @@ namespace CouchDBAssembler
 
                 if (!directory.Exists)
                 {
-                    Error("The directory name is invalid.");
+                    Error(directory, "Directory name is invalid.");
                     Environment.Exit(1);
                 }
 
@@ -81,34 +81,34 @@ namespace CouchDBAssembler
 
                 if (HasError)
                 {
-                    Warning("Aborting.");
+                    Console.WriteLine("Aborting.");
                 }
                 else
                 {
-                    Warning("Uploading...");
+                    Console.WriteLine("Uploading...");
                     var res = await store.Client.Documents.BulkAsync(bulk);
                     if (res.IsSuccess)
                     {
                         foreach (var row in res.Rows)
                         {
                             if (row.Succeeded) continue;
-                            Error("{0}: {1}", row.Id, row.Reason);
+                            Error(row.Id + ": " + row.Reason);
                         }
                     }
                     else
                     {
                         Error(res.Reason);
                     }
-                    Warning("Done!");
+                    Console.WriteLine("Done!");
                 }
             }
             catch (AggregateException e)
             {
-                foreach (var ie in e.InnerExceptions) Error(ie.Message);
+                foreach (var ie in e.InnerExceptions) Error(ie);
             }
             catch (Exception e)
             {
-                Error(e.Message);
+                Error(e);
             }
             finally
             {
@@ -173,7 +173,7 @@ namespace CouchDBAssembler
         {
             var root = directory;
             if (root.Name == "_design") return;
-            
+
             var docs = new Dictionary<string, JObject>();
 
             foreach (var file in root.EnumerateFiles("*.json"))
@@ -219,11 +219,11 @@ namespace CouchDBAssembler
 
                     return doc;
                 }
-                Error("{0}: Document must be an object.", GetRelativePath(file));
+                Error(file, "Document must be an object literal.");
             }
             catch (Exception e)
             {
-                Error("{0}: {1}", GetRelativePath(file), e.Message);
+                Error(file, e);
             }
             return new JObject();
         }
@@ -278,7 +278,7 @@ namespace CouchDBAssembler
             }
             catch (Exception e)
             {
-                Error("{0}: {1}", GetRelativePath(directory), e.Message);
+                Error(directory, e);
             }
             return result;
         }
@@ -305,7 +305,7 @@ namespace CouchDBAssembler
             }
             catch (Exception e)
             {
-                Error("{0}: {1}", GetRelativePath(directory), e.Message);
+                Error(directory, e);
             }
             return result;
         }
@@ -315,7 +315,6 @@ namespace CouchDBAssembler
         /// </summary>
         static string ParseJavaScript(FileInfo file)
         {
-            var path = GetRelativePath(file);
             try
             {
                 var code = File.ReadAllText(file.FullName);
@@ -340,13 +339,13 @@ namespace CouchDBAssembler
                 }
 
                 parser.CompilerError += CompilerError;
-                parser.Parse(new DocumentContext(code) { FileContext = path });
+                parser.Parse(new DocumentContext(code) { FileContext = GetRelativePath(file) });
 
                 if (!HasError) return code.Replace(Environment.NewLine, "\n");
             }
             catch (Exception e)
             {
-                Error("{0}: {1}", path, e.Message);
+                Error(file, e);
             }
             return string.Empty;
         }
@@ -356,7 +355,6 @@ namespace CouchDBAssembler
         /// </summary>
         static JToken ParseJson(FileInfo file)
         {
-            var path = GetRelativePath(file);
             try
             {
                 var json = File.ReadAllText(file.FullName);
@@ -365,8 +363,8 @@ namespace CouchDBAssembler
                 settings.MinifyCode = false;
                 settings.Format = JavaScriptFormat.JSON;
                 settings.SourceMode = JavaScriptSourceMode.Expression;
-                
-                var minifier = new Minifier { FileName = path };
+
+                var minifier = new Minifier { FileName = GetRelativePath(file) };
                 json = minifier.MinifyJavaScript(json, settings);
                 minifier.ErrorList.ForEach(CompilerError);
 
@@ -374,9 +372,9 @@ namespace CouchDBAssembler
             }
             catch (Exception e)
             {
-                Error("{0}: {1}", path, e.Message);
+                Error(file, e);
             }
-            return JValue.CreateNull();
+            return new JObject();
         }
 
         /// <summary>
@@ -384,7 +382,6 @@ namespace CouchDBAssembler
         /// </summary>
         static string ParseText(FileInfo file)
         {
-            var path = GetRelativePath(file);
             try
             {
                 var text = File.ReadAllText(file.FullName);
@@ -394,11 +391,11 @@ namespace CouchDBAssembler
                     return text.Replace(Environment.NewLine, "\n");
                 }
 
-                Error("{0}: Binary file found.", path);
+                Error(file, "Binary file found.");
             }
             catch (Exception e)
             {
-                Error("{0}: {1}", path, e.Message);
+                Error(file, e);
             }
             return string.Empty;
         }
@@ -409,28 +406,35 @@ namespace CouchDBAssembler
             return Uri.UnescapeDataString(baseUri.MakeRelativeUri(new Uri(info.FullName)).ToString());
         }
 
+        #region Error Handling
+
         static bool HasError { get { return Environment.ExitCode != 0; } }
+
+        static void Error(Exception exception)
+        {
+            Error(exception.Message.Replace(Environment.NewLine, " "));
+        }
+
+        static void Error(FileSystemInfo info, Exception exception)
+        {
+            Error(info, exception.Message.Replace(Environment.NewLine, " "));
+        }
+
+        static void Error(FileSystemInfo info, string message)
+        {
+            Error(GetRelativePath(info), message);
+        }
+
+        static void Error(string origin, string message)
+        {
+            Console.Error.WriteLine(origin + ": error: " + message);
+            Environment.ExitCode = 1;
+        }
 
         static void Error(string message)
         {
-            Console.Error.WriteLine(message);
+            Console.Error.WriteLine("Fatal error: " + message);
             Environment.ExitCode = 1;
-        }
-
-        static void Error(string format, params object[] args)
-        {
-            Console.Error.WriteLine(format, args);
-            Environment.ExitCode = 1;
-        }
-
-        static void Warning(string message)
-        {
-            Console.WriteLine(message);
-        }
-
-        static void Warning(string format, params object[] args)
-        {
-            Console.WriteLine(format, args);
         }
 
         static void CompilerError(object sender, ContextErrorEventArgs e)
@@ -442,13 +446,16 @@ namespace CouchDBAssembler
         {
             if (error.IsError)
             {
-                Error("{0}", error);
+                Console.Error.WriteLine(error);
+                Environment.ExitCode = 1;
             }
             else
             {
-                Warning("{0}", error);
+                Console.WriteLine(error);
             }
         }
+
+        #endregion
 
         class AllDocsValue
         {
