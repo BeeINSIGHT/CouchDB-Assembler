@@ -5,6 +5,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -174,30 +175,39 @@ namespace CouchDBAssembler
             var root = directory;
             if (root.Name == "_design") return;
 
-            var docs = new Dictionary<string, JObject>();
+            var docs = new DocumentCollection(BuildDocuments(directory));
+            if (docs.Count > 0)
+            {
+                await store.QueryAsync<AllDocsValue>(new Query("_all_docs").Configure(c => c.Keys(docs.Keys.ToArray())), r =>
+                {
+                    if (r.Id == null) return;
+                    docs[r.Id]["_rev"] = r.Value.Rev;
+                });
 
-            foreach (var file in root.EnumerateFiles("*.json"))
+                lock (bulk) bulk.Include(docs.Select(d => d.ToString(Formatting.None)).ToArray());
+            }
+        }
+
+        /// <summary>
+        /// Build documents from a given directory.
+        /// </summary>
+        static IEnumerable<JObject> BuildDocuments(DirectoryInfo directory)
+        {
+            // Go through files
+            foreach (var file in directory.EnumerateFiles("*.json"))
             {
                 var doc = BuildDocument(file);
-
-                var id = (string)doc["_id"];
-                if (id == null)
-                {
-                    id = Guid.NewGuid().ToString("N");
-                    doc["_id"] = id;
-                }
-
-                docs.Add(id, doc);
+                if (doc != null) yield return doc;
             }
 
-            await store.QueryAsync<AllDocsValue>(new Query("_all_docs").Configure(c => c.Keys(docs.Keys.ToArray())), r =>
+            // Go through subdirectories
+            foreach (var dir in directory.EnumerateDirectories())
             {
-                if (r.Id != null) docs[r.Id]["_rev"] = r.Value.Rev;
-            });
+                if (dir.Name == "_design") continue;
+                if (dir.Name == "_attachments") continue;
+                if (Path.GetExtension(dir.Name) == "._attachments") continue;
 
-            lock (bulk)
-            {
-                bulk.Include(docs.Values.Select(d => d.ToString(Formatting.None)).ToArray());
+                foreach (var doc in BuildDocuments(dir)) yield return doc;
             }
         }
 
@@ -209,23 +219,29 @@ namespace CouchDBAssembler
             try
             {
                 var doc = ParseJson(file) as JObject;
-                if (doc != null)
+                if (doc == null)
                 {
-                    var attach = new DirectoryInfo(Path.ChangeExtension(file.FullName, "_attachments"));
-                    if (attach.Exists)
-                    {
-                        doc["_attachments"] = BuildAttachments(attach);
-                    }
-
-                    return doc;
+                    Error(file, "Document must be an object literal.");
+                    return null;
                 }
-                Error(file, "Document must be an object literal.");
+
+                var id = (string)doc["_id"];
+                if (id == null)
+                {
+                    Error(file, "Document must have an _id.");
+                    return null;
+                }
+
+                var attach = new DirectoryInfo(Path.ChangeExtension(file.FullName, "._attachments"));
+                if (attach.Exists) doc["_attachments"] = BuildAttachments(attach);
+
+                return doc;
             }
             catch (Exception e)
             {
                 Error(file, e);
+                return null;
             }
-            return new JObject();
         }
 
         /// <summary>
@@ -240,9 +256,9 @@ namespace CouchDBAssembler
                 foreach (var dir in directory.EnumerateDirectories())
                 {
                     // Attachments subdirectory found
-                    if (attachments && dir.Name == "_attachments")
+                    if (dir.Name == "_attachments")
                     {
-                        result[dir.Name] = BuildAttachments(dir);
+                        if (attachments) result[dir.Name] = BuildAttachments(dir);
                     }
                     // Otherwise, recurse into subdirectory
                     else
@@ -400,13 +416,7 @@ namespace CouchDBAssembler
             return string.Empty;
         }
 
-        static string GetRelativePath(FileSystemInfo info)
-        {
-            var baseUri = new Uri(directory.FullName.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar);
-            return Uri.UnescapeDataString(baseUri.MakeRelativeUri(new Uri(info.FullName)).ToString());
-        }
-
-        #region Error Handling
+        #region Error handling
 
         static bool HasError { get { return Environment.ExitCode != 0; } }
 
@@ -457,9 +467,41 @@ namespace CouchDBAssembler
 
         #endregion
 
+        #region Helper classes
+
         class AllDocsValue
         {
             public string Rev { get; set; }
         }
+
+        class DocumentCollection : KeyedCollection<string, JObject>
+        {
+            internal DocumentCollection(IEnumerable<JObject> collection)
+            {
+                foreach (var item in collection) Add(item);
+            }
+
+            internal IEnumerable<string> Keys
+            {
+                get { return Dictionary.Keys; }
+            }
+
+            protected override string GetKeyForItem(JObject item)
+            {
+                return (string)item["_id"];
+            }
+        }
+
+        #endregion
+
+        #region Helper methods
+
+        static string GetRelativePath(FileSystemInfo info)
+        {
+            var baseUri = new Uri(directory.FullName.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar);
+            return Uri.UnescapeDataString(baseUri.MakeRelativeUri(new Uri(info.FullName)).ToString());
+        }
+
+        #endregion
     }
 }
