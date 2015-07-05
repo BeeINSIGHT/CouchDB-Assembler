@@ -343,21 +343,16 @@ namespace CouchDBAssembler
                         return code;
                 }
 
-                var parser = new JSParser();
-                parser.Settings.MinifyCode = false;
-                parser.Settings.PreprocessOnly = true;
-                parser.Settings.SetKnownGlobalIdentifiers(knowGlobals);
+                var settings = new CodeSettings();
+                settings.MinifyCode = false;
+                settings.IgnoreErrorList = "JS1010";
+                settings.SetKnownGlobalIdentifiers(knowGlobals);
 
-                var block = parser.Parse(code);
-                if (block.Count == 1 && block[0] is FunctionObject && (block[0] as FunctionObject).Binding == null)
-                {
-                    parser.Settings.SourceMode = JavaScriptSourceMode.Expression;
-                }
+                var minifier = new Minifier { FileName = GetRelativePath(file), WarningLevel = 4 };
+                code = minifier.MinifyJavaScript(code, settings);
+                minifier.ErrorList.ForEach(CompilerError);
 
-                parser.CompilerError += CompilerError;
-                parser.Parse(new DocumentContext(code) { FileContext = GetRelativePath(file) });
-
-                if (!HasError) return code.Replace(Environment.NewLine, "\n");
+                if (!HasError) return code;
             }
             catch (Exception e)
             {
@@ -380,7 +375,7 @@ namespace CouchDBAssembler
                 settings.Format = JavaScriptFormat.JSON;
                 settings.SourceMode = JavaScriptSourceMode.Expression;
 
-                var minifier = new Minifier { FileName = GetRelativePath(file) };
+                var minifier = new Minifier { FileName = GetRelativePath(file), WarningLevel = 4 };
                 json = minifier.MinifyJavaScript(json, settings);
                 minifier.ErrorList.ForEach(CompilerError);
 
@@ -445,11 +440,6 @@ namespace CouchDBAssembler
         {
             Console.Error.WriteLine("Fatal error: " + message);
             Environment.ExitCode = 1;
-        }
-
-        static void CompilerError(object sender, ContextErrorEventArgs e)
-        {
-            CompilerError(e.Error);
         }
 
         static void CompilerError(ContextError error)
