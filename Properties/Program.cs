@@ -193,13 +193,6 @@ namespace CouchDBAssembler
         /// </summary>
         static IEnumerable<JObject> BuildDocuments(DirectoryInfo directory)
         {
-            // Go through files
-            foreach (var file in directory.EnumerateFiles("*.json"))
-            {
-                var doc = BuildDocument(file);
-                if (doc != null) yield return doc;
-            }
-
             // Go through subdirectories
             foreach (var dir in directory.EnumerateDirectories())
             {
@@ -209,39 +202,56 @@ namespace CouchDBAssembler
 
                 foreach (var doc in BuildDocuments(dir)) yield return doc;
             }
+
+            // Go through files
+            foreach (var file in directory.EnumerateFiles("*.json"))
+            {
+                foreach (var doc in BuildDocuments(file)) yield return doc;
+            }
         }
 
         /// <summary>
-        /// Build a document from a given file and attachments.
+        /// Build documents from a given file and attachments.
         /// </summary>
-        static JObject BuildDocument(FileInfo file)
+        static IEnumerable<JObject> BuildDocuments(FileInfo file)
         {
-            try
-            {
-                var doc = ParseJson(file) as JObject;
-                if (doc == null)
-                {
-                    Error(file, "Document must be an object literal.");
-                    return null;
-                }
+            var doc = ParseJson(file);
 
+            if (doc is JObject)
+            {
                 var id = (string)doc["_id"];
-                if (id == null)
+                if (id != null)
                 {
-                    Error(file, "Document must have an _id.");
-                    return null;
+                    var attach = new DirectoryInfo(Path.ChangeExtension(file.FullName, "._attachments"));
+                    if (attach.Exists) doc["_attachments"] = BuildAttachments(attach);
+                    yield return doc as JObject;
+                    yield break;
                 }
-
-                var attach = new DirectoryInfo(Path.ChangeExtension(file.FullName, "._attachments"));
-                if (attach.Exists) doc["_attachments"] = BuildAttachments(attach);
-
-                return doc;
+                Error(file, doc, "Document must have an _id.");
+                yield break;
             }
-            catch (Exception e)
+
+            if (doc is JArray)
             {
-                Error(file, e);
-                return null;
+                foreach (var d in doc)
+                {
+                    if (d is JObject)
+                    {
+                        var id = (string)d["_id"];
+                        if (id != null)
+                        {
+                            yield return d as JObject;
+                            continue;
+                        }
+                        Error(file, d, "Document must have an _id.");
+                        continue;
+                    }
+                    Error(file, d, "Document must be an object literal.");
+                }
+                yield break;
             }
+
+            Error(file, doc, "Document must be an object literal.");
         }
 
         /// <summary>
@@ -350,8 +360,7 @@ namespace CouchDBAssembler
 
                 var minifier = new Minifier { FileName = GetRelativePath(file), WarningLevel = 4 };
                 code = minifier.MinifyJavaScript(code, settings);
-                minifier.ErrorList.ForEach(CompilerError);
-
+                minifier.ErrorList.ForEach(e => Error(e));
                 if (!HasError) return code;
             }
             catch (Exception e)
@@ -369,23 +378,13 @@ namespace CouchDBAssembler
             try
             {
                 var json = File.ReadAllText(file.FullName);
-
-                var settings = new CodeSettings();
-                settings.MinifyCode = false;
-                settings.Format = JavaScriptFormat.JSON;
-                settings.SourceMode = JavaScriptSourceMode.Expression;
-
-                var minifier = new Minifier { FileName = GetRelativePath(file), WarningLevel = 4 };
-                json = minifier.MinifyJavaScript(json, settings);
-                minifier.ErrorList.ForEach(CompilerError);
-
-                if (!HasError) return JToken.Parse(json);
+                return JToken.Parse(json);
             }
             catch (Exception e)
             {
-                Error(file, e);
+                Error(file, e as dynamic);
             }
-            return new JObject();
+            return new JArray();
         }
 
         /// <summary>
@@ -415,19 +414,49 @@ namespace CouchDBAssembler
 
         static bool HasError { get { return Environment.ExitCode != 0; } }
 
-        static void Error(Exception exception)
+        static void Error(FileSystemInfo info, IJsonLineInfo line, string message)
         {
-            Error(exception.Message.Replace(Environment.NewLine, " "));
+            var origin = GetOrigin(info, line.LineNumber, line.LinePosition);
+            Error(origin, message);
+        }
+
+        static void Error(FileSystemInfo info, JsonReaderException exception)
+        {
+            var origin = GetOrigin(info, exception.LineNumber, exception.LinePosition);
+            var message = GetMessage(exception);
+            Error(origin, message);
         }
 
         static void Error(FileSystemInfo info, Exception exception)
         {
-            Error(info, exception.Message.Replace(Environment.NewLine, " "));
+            var origin = GetOrigin(info);
+            var message = GetMessage(exception);
+            Error(origin, message);
         }
 
         static void Error(FileSystemInfo info, string message)
         {
-            Error(GetRelativePath(info), message);
+            var origin = GetOrigin(info);
+            Error(origin, message);
+        }
+
+        static void Error(Exception exception)
+        {
+            var message = GetMessage(exception);
+            Error(message);
+        }
+
+        static void Error(ContextError error)
+        {
+            if (error.IsError)
+            {
+                Console.Error.WriteLine(error);
+                Environment.ExitCode = 1;
+            }
+            else
+            {
+                Console.WriteLine(error);
+            }
         }
 
         static void Error(string origin, string message)
@@ -440,19 +469,6 @@ namespace CouchDBAssembler
         {
             Console.Error.WriteLine("Fatal error: " + message);
             Environment.ExitCode = 1;
-        }
-
-        static void CompilerError(ContextError error)
-        {
-            if (error.IsError)
-            {
-                Console.Error.WriteLine(error);
-                Environment.ExitCode = 1;
-            }
-            else
-            {
-                Console.WriteLine(error);
-            }
         }
 
         #endregion
@@ -490,6 +506,33 @@ namespace CouchDBAssembler
         {
             var baseUri = new Uri(directory.FullName.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar);
             return Uri.UnescapeDataString(baseUri.MakeRelativeUri(new Uri(info.FullName)).ToString());
+        }
+
+        static string GetOrigin(FileSystemInfo info, int line = 0, int position = 0)
+        {
+            var origin = GetRelativePath(info);
+
+            if (line > 0)
+            {
+                if (position > 0)
+                {
+                    origin = string.Format("{0}({1},{2})", origin, line, position);
+                }
+                else
+                {
+                    origin = string.Format("{0}({1})", origin, line);
+                }
+            }
+
+            return origin;
+        }
+
+        static string GetMessage(Exception exception)
+        {
+            var message = exception.Message.Trim();
+            var pos = message.IndexOfAny(Environment.NewLine.ToCharArray());
+            if (pos > 0) return message.Remove(pos);
+            return message;
         }
 
         #endregion
