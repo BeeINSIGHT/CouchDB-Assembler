@@ -41,6 +41,8 @@ Usage: CouchDBAssembler [source-dir] [database-url]
 
   -p, --password    Database password.
 
+  -m, --minify      Minify JavaScript
+
   -h, --help        Display this help screen.
 ```
 
