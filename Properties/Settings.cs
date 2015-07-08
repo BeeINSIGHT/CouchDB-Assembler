@@ -53,6 +53,15 @@ namespace CouchDBAssembler
             set { this["Password"] = value; }
         }
 
+        [Option("minify", HelpText = "Minify JavaScript")]
+        [UserScopedSetting]
+        [DefaultSettingValue("false")]
+        public bool Minify
+        {
+            get { return (bool)this["Minify"]; }
+            set { this["Minify"] = value; }
+        }
+
         [HelpOption('h', "help")]
         public string GetUsage()
         {

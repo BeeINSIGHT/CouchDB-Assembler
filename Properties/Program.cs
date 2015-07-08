@@ -354,7 +354,7 @@ namespace CouchDBAssembler
                 }
 
                 var settings = new CodeSettings();
-                settings.MinifyCode = false;
+                settings.MinifyCode = Settings.Default.Minify;
                 settings.IgnoreErrorList = "JS1010";
                 settings.SetKnownGlobalIdentifiers(knowGlobals);
 
