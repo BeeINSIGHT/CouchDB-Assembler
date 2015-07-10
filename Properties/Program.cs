@@ -9,6 +9,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -19,6 +20,7 @@ namespace CouchDBAssembler
     class Program
     {
         static readonly Regex validText = new Regex("^[\u0009\u000a\u000d\u0020-\uFFFD]*$");
+        static readonly Encoding validUTF8 = new UTF8Encoding(false, true);
 
         static readonly string[] knowGlobals = new[]
         {
@@ -281,9 +283,9 @@ namespace CouchDBAssembler
                 foreach (var file in directory.EnumerateFiles("*.*"))
                 {
                     var name = Path.GetFileNameWithoutExtension(file.Name);
-                    var ext = Path.GetExtension(file.Name);
+                    var extn = Path.GetExtension(file.Name);
 
-                    switch (ext)
+                    switch (extn)
                     {
                         // JavaScript files: syntax checked and loaded as string
                         case ".js":
@@ -321,11 +323,13 @@ namespace CouchDBAssembler
 
                 foreach (var file in directory.EnumerateFiles("*.*", SearchOption.AllDirectories))
                 {
-                    var attachment = new JObject();
-                    attachment["data"] = File.ReadAllBytes(file.FullName);
-                    attachment["content_type"] = MimeMapping.GetMimeMapping(file.Name);
-
                     var name = Uri.UnescapeDataString(baseUri.MakeRelativeUri(new Uri(file.FullName)).ToString());
+                    var data = File.ReadAllBytes(file.FullName);
+                    var type = GetContentType(file.Name, data);
+
+                    var attachment = new JObject();
+                    attachment["data"] = data;
+                    attachment["content_type"] = type;
                     result[name] = attachment;
                 }
             }
@@ -533,6 +537,106 @@ namespace CouchDBAssembler
             var pos = message.IndexOfAny(Environment.NewLine.ToCharArray());
             if (pos > 0) return message.Remove(pos);
             return message;
+        }
+
+        static string GetContentType(string path, byte[] data)
+        {
+            var type = GetMimeMapping(path);
+            var text = true;
+
+            if (type == null) 
+            {
+                type = MimeMapping.GetMimeMapping(path);
+                text = type.StartsWith("text/");
+            }
+
+            if (text)
+            {
+                var encoding = GetEncoding(data);
+                if (encoding != null) type += "; charset=" + encoding.WebName;
+            }
+
+            return type;
+        }
+
+        static string GetMimeMapping(string path)
+        {
+            switch (Path.GetExtension(path))
+            {
+                case ".txt":
+                    return "text/plain";
+
+                case ".htm":
+                case ".html":
+                    return "text/html";
+
+                case ".css":
+                    return "text/css";
+
+                case ".js":
+                    return "text/javascript";
+
+                case ".ics":
+                    return "text/calendar";
+
+                case ".vcf":
+                    return "text/vcard";
+
+                case ".csv":
+                    return "text/csv";
+
+                case ".md":
+                    return "text/markdown";
+
+                case ".xml":
+                    return "application/xml";
+
+                case ".xhtml":
+                    return "application/xhtml+xml";
+
+                case ".rss":
+                    return "application/rss+xml";
+
+                case ".atom":
+                    return "application/atom+xml";
+
+                case ".json":
+                    return "application/json";
+
+                default:
+                    return null;
+            }
+        }
+
+        static Encoding GetEncoding(byte[] data)
+        {
+            if (data.Length < 2) return null;
+            if (data[0] == 0xfe && data[1] == 0xff) return Encoding.BigEndianUnicode;
+
+            if (data[0] == 0xff && data[1] == 0xfe)
+            {
+                if (data.Length < 4 || data[2] != 0 || data[3] != 0) return Encoding.Unicode;
+                return Encoding.UTF32;
+            }
+
+            if (data.Length < 3) return null;
+            if (data[0] == 0xef && data[1] == 0xbb && data[2] == 0xbf) return Encoding.UTF8;
+
+            if (data.Length < 4) return null;
+            if (data[0] == 0 && data[1] == 0 && data[2] == 0xfe && data[3] == 0xff) return Encoding.GetEncoding(12001);
+
+            if (data.Length < 16) return null;
+
+            try
+            {
+                validUTF8.GetCharCount(data);
+            }
+            catch (DecoderFallbackException)
+            {
+                return null;
+            }
+
+            return Encoding.UTF8;
         }
 
         #endregion
