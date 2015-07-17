@@ -145,7 +145,7 @@ namespace CouchDBAssembler
                         id = "_design/" + dir.Name;
                         doc["_id"] = id;
                     }
-                    else if (!id.StartsWith("_design/", StringComparison.Ordinal))
+                    else if (!id.StartsWith("_design/"))
                     {
                         id = "_design/" + id;
                         doc["_id"] = id;
@@ -200,10 +200,10 @@ namespace CouchDBAssembler
             // Go through subdirectories
             foreach (var dir in directory.EnumerateDirectories())
             {
-                if (dir.Name == "_design") continue;
-                if (dir.Name == "_attachments") continue;
-                if (Path.GetExtension(dir.Name) == "._attachments") continue;
-
+                var name = dir.Name;
+                if (name == "_local") continue;
+                if (name == "_design") continue;
+                if (name.EndsWith("_attachments")) continue;
                 foreach (var doc in BuildDocuments(dir)) yield return doc;
             }
 
@@ -237,20 +237,20 @@ namespace CouchDBAssembler
 
             if (doc is JArray)
             {
-                foreach (var d in doc)
+                foreach (var it in doc)
                 {
-                    if (d is JObject)
+                    if (it is JObject)
                     {
-                        var id = (string)d["_id"];
+                        var id = (string)it["_id"];
                         if (id != null)
                         {
-                            yield return d as JObject;
+                            yield return it as JObject;
                             continue;
                         }
-                        Error(file, d, "Document must have an _id.");
+                        Error(file, it, "Document must have an _id.");
                         continue;
                     }
-                    Error(file, d, "Document must be an object literal.");
+                    Error(file, it, "Document must be an object literal.");
                 }
                 yield break;
             }
@@ -282,26 +282,33 @@ namespace CouchDBAssembler
                 }
 
                 // Go through files
-                foreach (var file in directory.EnumerateFiles("*.*"))
+                foreach (var file in directory.EnumerateFiles())
                 {
                     var name = Path.GetFileNameWithoutExtension(file.Name);
                     var extn = Path.GetExtension(file.Name);
+                    var info = file;
+
+                    if (extn == ".lnk")
+                    {
+                        info = ResolveLink(file);
+                        extn = Path.GetExtension(info.Name);
+                    }
 
                     switch (extn)
                     {
                         // JavaScript files: syntax checked and loaded as string
                         case ".js":
-                            result[name] = ParseJavaScript(file);
+                            result[name] = ParseJavaScript(info);
                             break;
 
                         // JSON files: syntax checked and loaded as JSON
                         case ".json":
-                            result[name] = ParseJson(file);
+                            result[name] = ParseJson(info);
                             break;
 
                         // Text files: load as string for templating
                         default:
-                            result[name] = ParseText(file);
+                            result[name] = ParseText(info);
                             break;
                     }
                 }
@@ -321,18 +328,24 @@ namespace CouchDBAssembler
             var result = new JObject();
             try
             {
-                var baseUri = new Uri(directory.FullName.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar);
-
-                foreach (var file in directory.EnumerateFiles("*.*", SearchOption.AllDirectories))
+                foreach (var file in directory.EnumerateFiles("*", SearchOption.AllDirectories))
                 {
-                    var name = Uri.UnescapeDataString(baseUri.MakeRelativeUri(new Uri(file.FullName)).ToString());
-                    var data = File.ReadAllBytes(file.FullName);
-                    var type = GetContentType(file.Name, data);
+                    var info = file;
+                    var path = GetRelativePath(file, directory);
+
+                    if (path.EndsWith(".lnk"))
+                    {
+                        path = path.Remove(path.Length - 4);
+                        info = ResolveLink(file);
+                    }
+
+                    var data = File.ReadAllBytes(info.FullName);
+                    var type = GetContentType(path, data);
 
                     var attachment = new JObject();
-                    attachment["data"] = data;
                     attachment["content_type"] = type;
-                    result[name] = attachment;
+                    attachment["data"] = data;
+                    result[path] = attachment;
                 }
             }
             catch (Exception e)
@@ -511,8 +524,24 @@ namespace CouchDBAssembler
 
         static string GetRelativePath(FileSystemInfo info)
         {
+            return GetRelativePath(info, directory);
+        }
+
+        static string GetRelativePath(FileSystemInfo info, DirectoryInfo directory)
+        {
             var baseUri = new Uri(directory.FullName.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar);
             return Uri.UnescapeDataString(baseUri.MakeRelativeUri(new Uri(info.FullName)).ToString());
+        }
+
+        static FileInfo ResolveLink(FileInfo file)
+        {
+            var link = File.ReadAllText(file.FullName).Trim();
+            link = Path.Combine(file.DirectoryName, link);
+
+            file = new FileInfo(link);
+            if (file.Exists) return file;
+
+            throw new FileNotFoundException();
         }
 
         static string GetOrigin(FileSystemInfo info, int line = 0, int position = 0)
