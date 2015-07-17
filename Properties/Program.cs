@@ -182,8 +182,10 @@ namespace CouchDBAssembler
             {
                 await store.QueryAsync<AllDocsValue>(new Query("_all_docs").Configure(c => c.Keys(docs.Keys.ToArray())), r =>
                 {
-                    if (r.Id == null) return;
-                    docs[r.Id]["_rev"] = r.Value.Rev;
+                    if (r.Id != null && r.Value.Rev != null && !r.Value.Deleted)
+                    {
+                        docs[r.Id]["_rev"] = r.Value.Rev;
+                    }
                 });
 
                 lock (bulk) bulk.Include(docs.Select(d => d.ToString(Formatting.None)).ToArray());
@@ -481,7 +483,8 @@ namespace CouchDBAssembler
 
         class AllDocsValue
         {
-            public string Rev { get; set; }
+            public string Rev;
+            public bool Deleted;
         }
 
         class DocumentCollection : KeyedCollection<string, JObject>
@@ -544,7 +547,7 @@ namespace CouchDBAssembler
             var type = GetMimeMapping(path);
             var text = true;
 
-            if (type == null) 
+            if (type == null)
             {
                 type = MimeMapping.GetMimeMapping(path);
                 text = type.StartsWith("text/");
