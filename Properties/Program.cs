@@ -496,8 +496,10 @@ namespace CouchDBAssembler
 
         class AllDocsValue
         {
+#pragma warning disable
             public string Rev;
             public bool Deleted;
+#pragma warning enable
         }
 
         class DocumentCollection : KeyedCollection<string, JObject>
