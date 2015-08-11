@@ -376,6 +376,7 @@ namespace CouchDBAssembler
                 settings.IgnoreErrorList = "JS1010";
                 settings.MinifyCode = Settings.Default.Minify;
                 settings.SetKnownGlobalIdentifiers(knowGlobals);
+                settings.KillSwitch = (long)TreeModifications.MinifyStringLiterals;
 
                 var minifier = new Minifier { FileName = GetRelativePath(file), WarningLevel = 4 };
                 code = minifier.MinifyJavaScript(code, settings);
