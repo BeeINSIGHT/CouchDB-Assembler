@@ -398,7 +398,7 @@ namespace CouchDBAssembler
             try
             {
                 var json = File.ReadAllText(file.FullName);
-                return JToken.Parse(json);
+                return RemoveComments(JToken.Parse(json));
             }
             catch (Exception e)
             {
@@ -674,6 +674,24 @@ namespace CouchDBAssembler
             }
 
             return Encoding.UTF8;
+        }
+
+        static JToken RemoveComments(JToken token)
+        {
+            var container = token as JContainer;
+            if (container == null) return token;
+
+            var remove = new List<JToken>();
+
+            foreach (var t in container.Children())
+            {
+                if (t.Type == JTokenType.Comment) remove.Add(t);
+                else RemoveComments(t);
+            }
+
+            foreach (var t in remove) t.Remove();
+
+            return token;
         }
 
         #endregion
