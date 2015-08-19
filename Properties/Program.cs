@@ -538,6 +538,8 @@ namespace CouchDBAssembler
 
         static FileInfo ResolveLink(FileInfo file)
         {
+            if (file.Extension != ".lnk") throw new ArgumentException();
+
             var link = File.ReadAllText(file.FullName).Trim();
             link = Path.Combine(file.DirectoryName, link);
 
