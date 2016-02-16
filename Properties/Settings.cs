@@ -1,6 +1,7 @@
 ﻿using CommandLine;
 using CommandLine.Text;
 using MyCouch;
+using MyCouch.Net;
 using System;
 using System.Configuration;
 using System.IO;
@@ -29,10 +30,19 @@ namespace CouchDBAssembler
         [UserScopedSetting]
         [DefaultSettingValue("")]
         [SpecialSetting(SpecialSetting.WebServiceUrl)]
-        public string DatabaseUrl
+        public string ServerUrl
         {
-            get { return (string)this["DatabaseUrl"]; }
-            set { this["DatabaseUrl"] = value; }
+            get { return (string)this["ServerUrl"]; }
+            set { this["ServerUrl"] = value; }
+        }
+
+        [ValueOption(2)]
+        [UserScopedSetting]
+        [DefaultSettingValue("")]
+        public string Database
+        {
+            get { return (string)this["Database"]; }
+            set { this["Database"] = value; }
         }
 
         [Option('u', "username", HelpText = "Database username.")]
@@ -66,11 +76,13 @@ namespace CouchDBAssembler
         public string GetUsage()
         {
             var help = new HelpText { AdditionalNewLineAfterOption = true, AddDashesToOption = true };
-            help.AddPreOptionsLine("Usage: CouchDBAssembler [source-dir] [database-url]");
+            help.AddPreOptionsLine("Usage: CouchDBAssembler [source-dir] [server-url] [database-name]");
             help.AddPreOptionsLine("");
             help.AddPreOptionsLine("  [source-dir]      The directory from which to assemble design documents.");
             help.AddPreOptionsLine("");
-            help.AddPreOptionsLine("  [database-url]    The url of the CouchDB database to update.");
+            help.AddPreOptionsLine("  [server-url]      The url of the CouchDB instance to update.");
+            help.AddPreOptionsLine("");
+            help.AddPreOptionsLine("  [database-name]   The database name to update.");
             help.AddOptions(this);
             return help;
         }
@@ -80,20 +92,21 @@ namespace CouchDBAssembler
             return new DirectoryInfo(SourceDir);
         }
 
-        public Uri GetDatabaseUri()
+        public DbConnectionInfo GetDbConnectionInfo()
         {
-            var database = Settings.Default.DatabaseUrl;
+            var server = Settings.Default.ServerUrl;
+            var database = Settings.Default.Database;
             var username = Settings.Default.Username;
             var password = Settings.Default.Password;
 
-            var builder = new MyCouchUriBuilder(database);
+            var info = new DbConnectionInfo(server, database);
 
             if (username != "" || password != "")
             {
-                builder.SetBasicCredentials(username, password);
+                info.BasicAuth = new BasicAuthString(username, password);
             }
 
-            return builder.Build();
+            return info;
         }
     }
 }

@@ -7,6 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -39,14 +40,14 @@ namespace CouchDBAssembler
         };
 
         static DirectoryInfo directory;
-        static Uri uri;
+        static DbConnectionInfo database;
 
         static void Main(string[] args)
         {
             if (CommandLine.Parser.Default.ParseArguments(args, Settings.Default))
             {
                 directory = Settings.Default.GetSourceDirectory();
-                uri = Settings.Default.GetDatabaseUri();
+                database = Settings.Default.GetDbConnectionInfo();
 
                 if (!directory.Exists)
                 {
@@ -73,9 +74,10 @@ namespace CouchDBAssembler
 
         static async Task RunAsync(CancellationToken token)
         {
-            var store = new MyCouchStore(uri);
+            var client = new MyCouchClient(database);
             try
             {
+                var store = new MyCouchStore(client);
                 var bulk = new BulkRequest();
 
                 Task.WaitAll(
@@ -89,7 +91,7 @@ namespace CouchDBAssembler
                 else
                 {
                     Console.WriteLine("Uploading...");
-                    var res = await store.Client.Documents.BulkAsync(bulk);
+                    var res = await client.Documents.BulkAsync(bulk);
                     if (res.IsSuccess)
                     {
                         foreach (var row in res.Rows)
@@ -115,7 +117,7 @@ namespace CouchDBAssembler
             }
             finally
             {
-                store.Dispose();
+                client.Dispose();
             }
         }
 
@@ -129,7 +131,7 @@ namespace CouchDBAssembler
             if (root.Name != "_design") root = root.CreateSubdirectory("_design");
 
             // Get existing design document revisions
-            var rows = await store.QueryAsync<AllDocsValue>(new Query("_all_docs") { StartKey = "_desgin/", EndKey = "_design0", InclusiveEnd = false });
+            var rows = await store.QueryAsync<AllDocsValue>(new Query(SystemViewIdentity.AllDocs) { StartKey = "_desgin/", EndKey = "_design0", InclusiveEnd = false });
             var revs = rows.ToDictionary(r => r.Id, r => r.Value.Rev);
 
             lock (bulk)
@@ -180,14 +182,7 @@ namespace CouchDBAssembler
             var docs = new DocumentCollection(BuildDocuments(directory));
             if (docs.Count > 0)
             {
-                await store.QueryAsync<AllDocsValue>(new Query("_all_docs").Configure(c => c.Keys(docs.Keys.ToArray())), r =>
-                {
-                    if (r.Id != null && r.Value.Rev != null && !r.Value.Deleted)
-                    {
-                        docs[r.Id]["_rev"] = r.Value.Rev;
-                    }
-                });
-
+                await store.GetHeadersAsync(docs.Keys.ToArray(), r => docs[r.Id]["_rev"] = r.Rev);
                 lock (bulk) bulk.Include(docs.Select(d => d.ToString(Formatting.None)).ToArray());
             }
         }
@@ -560,11 +555,11 @@ namespace CouchDBAssembler
             {
                 if (position > 0)
                 {
-                    origin = string.Format("{0}({1},{2})", origin, line, position);
+                    origin = string.Format(CultureInfo.InvariantCulture, "{0}({1:D},{2:D})", origin, line, position);
                 }
                 else
                 {
-                    origin = string.Format("{0}({1})", origin, line);
+                    origin = string.Format(CultureInfo.InvariantCulture, "{0}({1:D})", origin, line);
                 }
             }
 
