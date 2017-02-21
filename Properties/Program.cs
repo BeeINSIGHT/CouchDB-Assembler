@@ -140,26 +140,15 @@ namespace CouchDBAssembler
                 foreach (var dir in root.EnumerateDirectories())
                 {
                     var doc = BuildDesignDocument(dir);
+                    UpdateDesignDocumentIdRev(doc, dir.Name, revs);
+                    bulk.Include(doc.ToString(Formatting.None));
+                }
 
-                    var id = (string)doc["_id"];
-                    if (id == null)
-                    {
-                        id = "_design/" + dir.Name;
-                        doc["_id"] = id;
-                    }
-                    else if (!id.StartsWith("_design/"))
-                    {
-                        id = "_design/" + id;
-                        doc["_id"] = id;
-                    }
-
-                    var rev = string.Empty;
-                    if (revs.TryGetValue(id, out rev))
-                    {
-                        doc["_rev"] = rev;
-                        revs.Remove(id);
-                    }
-
+                // Go through files
+                foreach (var file in root.EnumerateFiles("*.json"))
+                {
+                    var doc = BuildDesignDocument(file);
+                    UpdateDesignDocumentIdRev(doc, Path.GetFileNameWithoutExtension(file.Name), revs);
                     bulk.Include(doc.ToString(Formatting.None));
                 }
 
@@ -168,6 +157,31 @@ namespace CouchDBAssembler
                 {
                     bulk.Delete(kvp.Key, kvp.Value);
                 }
+            }
+        }
+
+        /// <summary>
+        /// Update a design document's _id and _rev.
+        /// </summary>
+        static void UpdateDesignDocumentIdRev(JObject doc, string name, Dictionary<string, string> revs)
+        {
+            var id = (string)doc["_id"];
+            if (id == null)
+            {
+                id = "_design/" + name;
+                doc["_id"] = id;
+            }
+            else if (!id.StartsWith("_design/"))
+            {
+                id = "_design/" + id;
+                doc["_id"] = id;
+            }
+
+            var rev = string.Empty;
+            if (revs.TryGetValue(id, out rev))
+            {
+                doc["_rev"] = rev;
+                revs.Remove(id);
             }
         }
 
@@ -313,6 +327,24 @@ namespace CouchDBAssembler
                 Error(directory, e);
             }
             return result;
+        }
+
+        /// <summary>
+        /// Build a design document from a given file.
+        /// </summary>
+        static JObject BuildDesignDocument(FileInfo file)
+        {
+            var doc = ParseJson(file);
+
+            if (doc is JObject)
+            {
+                var attach = new DirectoryInfo(Path.ChangeExtension(file.FullName, "._attachments"));
+                if (attach.Exists) doc["_attachments"] = BuildAttachments(attach);
+                return doc as JObject;
+            }
+
+            Error(file, doc, "Document must be an object literal.");
+            return new JObject();
         }
 
         /// <summary>

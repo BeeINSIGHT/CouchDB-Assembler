@@ -20,7 +20,7 @@ The preferred way is using Visual Studio for development.
 
 #### Visual Studio usage
 
-Use this Visual Studio project as a basis for development. Configure database URL, username and password in `Properties\app.config` (make sure you're not commiting passwords to public repos).
+Use this Visual Studio project as a basis for development. Configure database URL, username and password in `app.config` (make sure you're not commiting passwords to public repos).
 
 Design documents are built from the `_design` directory. Other JSON documents can be placed besides the `_design` directory.
 
